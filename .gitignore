@@ -1,0 +1,38 @@
+# E2E Test Results
+e2e-results/
+playwright-report/
+playwright-browsers/
+test-results/
+
+# Test Artifacts
+screenshots/
+videos/
+traces/
+visual-diff/
+
+# Test Logs
+test-log.txt
+*.log
+
+# Coverage
+coverage/
+.nyc_output/
+
+# Environment
+.env.local
+.env.test
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node
+node_modules/
+dist/
+build/

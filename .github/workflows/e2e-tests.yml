@@ -1,0 +1,302 @@
+name: BankOfMVP E2E Automation Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    # Run tests daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      browser:
+        description: 'Browser to run tests on'
+        required: false
+        default: 'chromium'
+        type: choice
+        options:
+          - chromium
+          - firefox
+          - webkit
+
+env:
+  NODE_VERSION: '18'
+  PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/playwright-browsers
+
+jobs:
+  install-deps:
+    name: Install Dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps chromium firefox webkit
+
+      - name: Cache node modules
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.npm
+            node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+  e2e-tests:
+    name: E2E Tests (${{ matrix.browser }})
+    needs: install-deps
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+        shard: [1, 2, 3, 4]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps ${{ matrix.browser }}
+
+      - name: Setup application
+        run: |
+          echo "Starting BankOfMVP application..."
+          npm start &
+          echo "Waiting for application to be ready..."
+          for i in {1..30}; do
+            if curl -s http://localhost:5000/api/health > /dev/null; then
+              echo "Application is ready!"
+              break
+            fi
+            echo "Waiting... ($i/30)"
+            sleep 2
+          done
+
+      - name: Run Playwright Tests
+        run: npx playwright test --project=${{ matrix.browser }} --shard=${{ matrix.shard }}/4
+        env:
+          CI: true
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: playwright-results-${{ matrix.browser }}-shard-${{ matrix.shard }}
+          path: |
+            e2e-results/
+            playwright-report/
+          retention-days: 7
+
+      - name: Upload screenshots
+        if: failure()
+        uses: actions/upload-artifact@v3
+        with:
+          name: screenshots-${{ matrix.browser }}-shard-${{ matrix.shard }}
+          path: e2e-results/screenshots/
+          retention-days: 7
+
+      - name: Upload videos
+        if: failure()
+        uses: actions/upload-artifact@v3
+        with:
+          name: videos-${{ matrix.browser }}-shard-${{ matrix.shard }}
+          path: e2e-results/videos/
+          retention-days: 7
+
+      - name: Upload traces
+        if: failure()
+        uses: actions/upload-artifact@v3
+        with:
+          name: traces-${{ matrix.browser }}-shard-${{ matrix.shard }}
+          path: e2e-results/traces/
+          retention-days: 7
+
+  visual-tests:
+    name: Visual Regression Tests
+    needs: install-deps
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Setup application
+        run: |
+          npm start &
+          sleep 30
+
+      - name: Run visual tests
+        run: npx playwright test --grep @visual
+        env:
+          CI: true
+
+      - name: Upload visual diff
+        if: failure()
+        uses: actions/upload-artifact@v3
+        with:
+          name: visual-diff
+          path: e2e-results/visual-diff/
+          retention-days: 7
+
+  performance-tests:
+    name: Performance Tests
+    needs: install-deps
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Setup application
+        run: |
+          npm start &
+          sleep 30
+
+      - name: Run performance tests
+        run: npx playwright test --grep @performance
+        env:
+          CI: true
+
+      - name: Upload performance metrics
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: performance-metrics
+          path: e2e-results/performance/
+          retention-days: 7
+
+  generate-report:
+    name: Generate Test Report
+    needs: [e2e-tests, visual-tests, performance-tests]
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: artifacts/
+
+      - name: Merge test results
+        run: |
+          mkdir -p e2e-results
+          cp -r artifacts/* e2e-results/ || true
+
+      - name: Generate HTML report
+        run: npx playwright merge-reports --reporter=html e2e-results
+
+      - name: Upload combined report
+        uses: actions/upload-artifact@v3
+        with:
+          name: combined-test-report
+          path: playwright-report/
+          retention-days: 30
+
+      - name: Comment PR with results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            
+            // Read test results if available
+            let comment = '## 🧪 E2E Test Results\n\n';
+            
+            try {
+              const resultsPath = 'e2e-results/test-results.json';
+              if (fs.existsSync(resultsPath)) {
+                const results = JSON.parse(fs.readFileSync(resultsPath, 'utf8'));
+                const total = results.stats?.expected || 0;
+                const passed = results.stats?.expected || 0;
+                const failed = results.stats?.unexpected || 0;
+                const skipped = results.stats?.skipped || 0;
+                
+                comment += `**Total Tests:** ${total}\n`;
+                comment += `**✅ Passed:** ${passed}\n`;
+                comment += `**❌ Failed:** ${failed}\n`;
+                comment += `**⏭️ Skipped:** ${skipped}\n`;
+                comment += `**Pass Rate:** ${((passed/total)*100).toFixed(1)}%\n\n`;
+              }
+            } catch (error) {
+              comment += 'Test results not available.\n\n';
+            }
+            
+            comment += '### 📊 Artifacts\n';
+            comment += '- Combined Test Report\n';
+            comment += '- Screenshots (if failures)\n';
+            comment += '- Videos (if failures)\n';
+            comment += '- Traces (if failures)\n';
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+
+      - name: Deploy report to GitHub Pages
+        if: github.ref == 'refs/heads/main'
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./playwright-report
+
+  notify-failure:
+    name: Notify on Failure
+    needs: [e2e-tests, visual-tests, performance-tests]
+    runs-on: ubuntu-latest
+    if: failure()
+    
+    steps:
+      - name: Send notification
+        run: |
+          echo "E2E tests failed. Check the workflow run for details."
+          # Add your notification logic here (Slack, Email, etc.)

@@ -1,0 +1,53 @@
+# Implementation Plan: Run and Test Bank Application (BankOfMVP)
+
+The goal is to start the **BankOfMVP** application (Node.js/Express backend on port 5000, React/Vite frontend on port 3000) and execute comprehensive automated testing using the **BankAIAutomationTesting** multi-agent framework against `http://localhost:3000/`.
+
+## User Review Required
+
+> [!NOTE]
+> The BankOfMVP application includes an automatic fallback to an **in-memory financial data engine** if a local PostgreSQL instance is not available. The application will start cleanly and support all user workflows (Savings, Current Account, Corporate Maker-Checker, Loans, Audit Trail).
+
+> [!IMPORTANT]
+> The application requires two processes to run:
+> 1. Node.js backend server (`http://localhost:5000`)
+> 2. Vite frontend client (`http://localhost:3000`)
+> 
+> Both will be launched asynchronously via `npm start` in `BankOfMVP`.
+
+---
+
+## Proposed Plan of Action
+
+### Phase 1: Launch Application (`BankOfMVP`)
+1. Verify `node_modules` in `BankOfMVP` (run `npm install` if required).
+2. Launch `npm start` asynchronously in `BankOfMVP` (runs both backend API on port 5000 and Vite dev server on port 3000).
+3. Validate API Health endpoint: `http://localhost:5000/api/health`.
+4. Validate Web Frontend availability: `http://localhost:3000/`.
+
+### Phase 2: Execute Test Suite (`BankAIAutomationTesting`)
+1. Run the deterministic unit and agent test suite in `BankAIAutomationTesting`:
+   ```bash
+   pytest tests/ -v
+   ```
+2. Run live End-to-End API and UI integration test against `http://localhost:3000/` covering:
+   - **Authentication**: Login/register workflow & JWT session tokens
+   - **Savings & Current Accounts**: Balance retrieval, transaction postings, overdraft limits
+   - **Corporate Savings**: Maker-checker workflows and approval gates
+   - **Loan Management**: EMI calculator and loan origination status
+   - **PII Redaction & Audit Ledger**: Immutable hashing of test execution traces
+
+### Phase 3: Audit Trail & Reporting
+1. Launch local Web Dashboard for test monitoring (`python src/dashboard/server.py` at `http://localhost:8080`).
+2. Generate comprehensive `walkthrough.md` with test metrics, compliance verification, and execution evidence.
+
+---
+
+## Verification Plan
+
+### Automated Tests
+- Execute pytest test suite in `f:\AI\BankAIAutomationTesting`:
+  `pytest tests/ -v`
+- Execute live HTTP/API endpoint verification against `http://localhost:3000/` and `http://localhost:5000/api/health`.
+
+### Manual / Browser Verification
+- Confirm `http://localhost:3000/` renders the CoreBank System portal with accessible navigation tabs (Dashboard, Personal Savings, Current Account, Corporate Savings, Loan Management, Audit Trail).
